@@ -16,6 +16,7 @@
 #include "velox/exec/Task.h"
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/connectors/hive/HiveConnector.h"
+#include "velox/exec/Exchange.h"
 #include "velox/exec/tests/utils/Cursor.h"
 #include "velox/exec/tests/utils/HiveConnectorTestBase.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
@@ -57,6 +58,14 @@ class TaskTest : public HiveConnectorTestBase {
     VELOX_CHECK(waitForTaskCompletion(task.get()));
 
     return {task, results};
+  }
+  std::shared_ptr<exec::Task> makeTask(
+      const std::string& taskId,
+      const core::PlanFragment planFragment,
+      int destination) {
+    auto queryCtx = core::QueryCtx::createForTest();
+    return std::make_shared<exec::Task>(
+        taskId, std::move(planFragment), destination, std::move(queryCtx));
   }
 };
 
@@ -579,6 +588,46 @@ TEST_F(TaskTest, singleThreadedCrossJoin) {
         {{leftScanId, {leftPath->path}}, {rightScanId, {rightPath->path}}});
     assertEqualResults({expectedResult}, results);
   }
+}
+
+// Add new test to check if the exchange client of the downstream task
+// (consuming the result of the upstream task) has the id/location info of the
+// upstream task if we add new source split to the downstream task. This is
+// critical in elegantly closing all related upstream tasks once the downstream
+// task completes/aborts.
+TEST_F(TaskTest, checkRemoteExchangeSourceAfterAddSplit) {
+  // Create and start a "remote" task
+  std::string remoteTaskId =
+      "local://task-0"; // localExchangeSource taskId must starts with 'local:'.
+                        // See Exchange.cpp.
+  auto remoteTaskPlan =
+      exec::test::PlanBuilder()
+          .tableScan(ROW({"c0", "c1"}, {INTEGER(), VARCHAR()}))
+          .partitionedOutput({}, 1)
+          .planFragment();
+  auto remoteTask = makeTask(remoteTaskId, remoteTaskPlan, 0);
+  remoteTask->start(remoteTask, 1, 5);
+
+  // Create and start a new task consuming the output of the remote task
+  auto plan = exec::test::PlanBuilder()
+                  .exchange(remoteTaskPlan.planNode->outputType())
+                  .partitionedOutput({}, 1)
+                  .planFragment();
+  plan.executionStrategy = core::ExecutionStrategy::kGrouped;
+  auto task = makeTask("task-1", plan, 0);
+  task->start(task, 1, 5);
+
+  // Create a remote source split and add it the new task
+  task->addSplitWithSequence(
+      "0",
+      exec::Split(
+          std::make_shared<facebook::velox::exec::RemoteConnectorSplit>(
+              remoteTaskId),
+          0),
+      0);
+
+  // Check if the exchangeClients of the new task has the id of the remote task.
+  EXPECT_TRUE(task->hasRemoteTaskId(remoteTaskId));
 }
 
 } // namespace facebook::velox::exec::test

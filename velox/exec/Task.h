@@ -144,6 +144,9 @@ class Task : public std::enable_shared_from_this<Task> {
       const core::PlanNodeId& planNodeId,
       long maxSequenceId);
 
+  // Check if the exchangeClients of the task has the task id of a remote source task
+  bool hasRemoteTaskId(const std::string& taskId);
+
   // Adds split for a source operator corresponding to plan node with
   // specified ID.
   // It requires sequential id of the split and, when that id is NOT greater

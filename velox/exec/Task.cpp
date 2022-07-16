@@ -675,6 +675,16 @@ bool Task::addSplitWithSequence(
   return added;
 }
 
+bool Task::hasRemoteTaskId(const std::string& taskId) {
+  int numPipelines = driverFactories_.size();
+  for (int i = 0; i < numPipelines; i++) {
+    if (exchangeClients_[i]->hasRemoteTaskId(taskId)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void Task::addSplit(const core::PlanNodeId& planNodeId, exec::Split&& split) {
   checkPlanNodeIdForSplit(planNodeId);
   std::unique_ptr<ContinuePromise> promise;

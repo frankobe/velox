@@ -281,6 +281,9 @@ class ExchangeClient {
 
   void addRemoteTaskId(const std::string& taskId);
 
+  // Check if exchangeClient has the task id of a remote source task
+  bool hasRemoteTaskId(const std::string& taskId);
+
   void noMoreRemoteTasks();
 
   std::shared_ptr<ExchangeQueue> queue() const {
