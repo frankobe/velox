@@ -59,13 +59,14 @@ class TaskTest : public HiveConnectorTestBase {
 
     return {task, results};
   }
+
   std::shared_ptr<exec::Task> makeTask(
       const std::string& taskId,
       const core::PlanFragment planFragment,
       int destination) {
     auto queryCtx = core::QueryCtx::createForTest();
     return std::make_shared<exec::Task>(
-        taskId, std::move(planFragment), destination, std::move(queryCtx));
+        taskId, planFragment, destination, queryCtx);
   }
 };
 
