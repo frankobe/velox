@@ -19,6 +19,7 @@
 #include "velox/exec/Exchange.h"
 #include "velox/exec/tests/utils/Cursor.h"
 #include "velox/exec/tests/utils/HiveConnectorTestBase.h"
+#include "velox/exec/tests/utils/MockExchangeSource.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
 #include "velox/exec/tests/utils/QueryAssertions.h"
 
@@ -27,6 +28,11 @@ using namespace facebook::velox;
 namespace facebook::velox::exec::test {
 class TaskTest : public HiveConnectorTestBase {
  protected:
+  static void SetUpTestCase() {
+    facebook::velox::exec::ExchangeSource::registerFactory(
+        MockExchangeSource::createExchangeSource);
+  }
+
   static std::pair<std::shared_ptr<exec::Task>, std::vector<RowVectorPtr>>
   executeSingleThreaded(
       core::PlanFragment plan,
@@ -591,16 +597,11 @@ TEST_F(TaskTest, singleThreadedCrossJoin) {
   }
 }
 
-// Add new test to check if the exchange client of the downstream task
-// (consuming the result of the upstream task) has the id/location info of the
-// upstream task if we add new source split to the downstream task. This is
-// critical in elegantly closing all related upstream tasks once the downstream
-// task completes/aborts.
-TEST_F(TaskTest, checkRemoteExchangeSourceAfterAddSplit) {
+// Check if a downstream task can elegantly close all related upstream tasks
+// once the downstream task completes/aborts.
+TEST_F(TaskTest, checkExchangeSourceClosedAfterCancel) {
   // Create and start a "remote" task
-  std::string remoteTaskId =
-      "local://task-0"; // localExchangeSource taskId must starts with 'local:'.
-                        // See Exchange.cpp.
+  std::string remoteTaskId = "mock://task-0";
   auto remoteTaskPlan =
       exec::test::PlanBuilder()
           .tableScan(ROW({"c0", "c1"}, {INTEGER(), VARCHAR()}))
@@ -619,6 +620,7 @@ TEST_F(TaskTest, checkRemoteExchangeSourceAfterAddSplit) {
   task->start(task, 1, 5);
 
   // Create a remote source split and add it the new task
+  MockExchangeSource::resetCloseTotal();
   task->addSplitWithSequence(
       "0",
       exec::Split(
@@ -627,8 +629,11 @@ TEST_F(TaskTest, checkRemoteExchangeSourceAfterAddSplit) {
           0),
       0);
 
-  // Check if the exchangeClients of the new task has the id of the remote task.
-  EXPECT_TRUE(task->hasRemoteTaskId(remoteTaskId));
+  // Check if the task has closed exchangeSource for the remote task after
+  // cancellation.
+  task->requestCancel();
+  sleep(1);
+  EXPECT_TRUE(MockExchangeSource::isTaskClosed(remoteTaskId));
 }
 
 } // namespace facebook::velox::exec::test

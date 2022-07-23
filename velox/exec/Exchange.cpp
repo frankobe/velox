@@ -171,10 +171,6 @@ void ExchangeClient::addRemoteTaskId(const std::string& taskId) {
   toRequest->request();
 }
 
-bool ExchangeClient::hasRemoteTaskId(const std::string& taskId) {
-  return taskIds_.find(taskId) != taskIds_.end();
-}
-
 void ExchangeClient::noMoreRemoteTasks() {
   std::lock_guard<std::mutex> l(queue_->mutex());
   queue_->noMoreSources();
