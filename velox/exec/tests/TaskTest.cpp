@@ -599,7 +599,7 @@ TEST_F(TaskTest, singleThreadedCrossJoin) {
 
 // Check if a downstream task can elegantly close all related upstream tasks
 // once the downstream task completes/aborts.
-TEST_F(TaskTest, checkExchangeSourceClosedAfterCancel) {
+TEST_F(TaskTest, checkExchangeSourceClosedAfterAbort) {
   // Create and start a "remote" task
   std::string remoteTaskId = "mock://task-0";
   auto remoteTaskPlan =
