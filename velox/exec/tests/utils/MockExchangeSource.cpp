@@ -36,7 +36,7 @@ void MockExchangeSource::close() {
   closedTasks_.push_back(this->taskId_);
 }
 
-void MockExchangeSource::resetCloseTotal() {
+void MockExchangeSource::resetClosedTasks() {
   closedTasks_.clear();
 }
 

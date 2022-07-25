@@ -32,7 +32,7 @@ class MockExchangeSource : public exec::ExchangeSource {
       int destination,
       std::shared_ptr<exec::ExchangeQueue> queue);
 
-  static void resetCloseTotal();
+  static void resetClosedTasks();
   static bool isTaskClosed(std::string taskId);
 
  private:

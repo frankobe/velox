@@ -620,7 +620,7 @@ TEST_F(TaskTest, checkExchangeSourceClosedAfterCancel) {
   task->start(task, 1, 5);
 
   // Create a remote source split and add it the new task
-  MockExchangeSource::resetCloseTotal();
+  MockExchangeSource::resetClosedTasks();
   task->addSplitWithSequence(
       "0",
       exec::Split(
