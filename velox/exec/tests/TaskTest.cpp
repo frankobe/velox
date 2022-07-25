@@ -631,8 +631,11 @@ TEST_F(TaskTest, checkExchangeSourceClosedAfterCancel) {
 
   // Check if the task has closed exchangeSource for the remote task after
   // cancellation.
-  task->requestCancel();
-  sleep(1);
+  auto future = task->requestAbort();
+  future.wait();
+  usleep(100); // Wait for 100ms; close of remote exchange source may not happen
+               // instantly after exchangeClients_ is cleared during the
+               // termination of the task.
   EXPECT_TRUE(MockExchangeSource::isTaskClosed(remoteTaskId));
 }
 
