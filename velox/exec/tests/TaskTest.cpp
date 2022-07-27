@@ -635,20 +635,20 @@ TEST_F(TaskTest, checkExchangeSourceClosedAfterAbort) {
   task->start(task, 1, 5);
 
   // Create a remote source split and add it the new task
-  MockExchangeSource::resetClosedTasks();
+  MockExchangeSource::resetClosedExchangeSources();
   task->addSplitWithSequence(
       "0",
       exec::Split(std::make_shared<facebook::velox::exec::RemoteConnectorSplit>(
           remoteTaskId)),
       0);
 
-  // Check if the task has closed exchangeSource for the remote task after
-  // aborting the task.
+  // Check if the task has closed exchangeSource for the remote task and
+  // destination after aborting the task.
   auto future = task->requestAbort();
   ASSERT_TRUE(waitForTaskAbort(task.get()));
   usleep(100); // Wait for 100ms; close of remote exchange source may not happen
                // instantly after exchangeClients_ is cleared during the
                // termination of the task.
-  EXPECT_TRUE(MockExchangeSource::isTaskClosed(remoteTaskId));
+  EXPECT_TRUE(MockExchangeSource::isExchangeSourceClosed(remoteTaskId, 0));
 }
 } // namespace facebook::velox::exec::test

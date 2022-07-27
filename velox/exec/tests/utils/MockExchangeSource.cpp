@@ -19,7 +19,7 @@
 
 using namespace facebook::velox;
 
-std::vector<std::string> MockExchangeSource::closedTasks_;
+std::vector<std::pair<std::string, int>> MockExchangeSource::closedSources_;
 std::mutex MockExchangeSource::mutex_;
 
 bool MockExchangeSource::shouldRequestLocked() {
@@ -35,18 +35,24 @@ void MockExchangeSource::request() {}
 
 void MockExchangeSource::close() {
   const std::lock_guard<std::mutex> lock(mutex_);
-  closedTasks_.push_back(this->taskId_);
+  closedSources_.emplace_back(this->taskId_, this->destination_);
 }
 
-void MockExchangeSource::resetClosedTasks() {
+void MockExchangeSource::resetClosedExchangeSources() {
   const std::lock_guard<std::mutex> lock(mutex_);
-  closedTasks_.clear();
+  closedSources_.clear();
 }
 
-bool MockExchangeSource::isTaskClosed(std::string taskId) {
+bool MockExchangeSource::isExchangeSourceClosed(
+    std::string taskId,
+    int destination) {
   const std::lock_guard<std::mutex> lock(mutex_);
-  return std::find(closedTasks_.begin(), closedTasks_.end(), taskId) !=
-      closedTasks_.end();
+  for (auto it : closedSources_) {
+    if (it.first == taskId && it.second == destination) {
+      return true;
+    }
+  }
+  return false;
 }
 
 std::unique_ptr<exec::ExchangeSource> MockExchangeSource::createExchangeSource(

@@ -17,7 +17,9 @@
 #include <gtest/gtest.h>
 #include "velox/dwio/dwrf/test/utils/BatchMaker.h"
 #include "velox/exec/Exchange.h"
+#include "velox/exec/tests/utils/MockExchangeSource.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
+#include "velox/exec/tests/utils/QueryAssertions.h"
 #include "velox/serializers/PrestoSerializer.h"
 
 using namespace facebook::velox;
@@ -39,6 +41,9 @@ class PartitionedOutputBufferManagerTest : public testing::Test {
             serializer::presto::PrestoOutputStreamListener>();
       });
     }
+
+    facebook::velox::exec::ExchangeSource::registerFactory(
+        MockExchangeSource::createExchangeSource);
   }
 
   std::shared_ptr<Task> initializeTask(
@@ -223,6 +228,15 @@ class PartitionedOutputBufferManagerTest : public testing::Test {
     EXPECT_FALSE(receivedData) << "for destination " << destination;
   }
 
+  std::shared_ptr<exec::Task> makeTask(
+      const std::string& taskId,
+      const core::PlanFragment planFragment,
+      int destination) {
+    auto queryCtx = core::QueryCtx::createForTest();
+    return std::make_shared<exec::Task>(
+        taskId, planFragment, destination, queryCtx);
+  }
+
   std::unique_ptr<facebook::velox::memory::ScopedMemoryPool> pool_;
   memory::MappedMemory* mappedMemory_;
   std::shared_ptr<PartitionedOutputBufferManager> bufferManager_;
@@ -401,4 +415,65 @@ TEST_F(PartitionedOutputBufferManagerTest, enqueueBufferToBeDeleted) {
 
   task->requestCancel();
   bufferManager_->removeTask(taskId);
+}
+
+// To check if the abort of a consumer task will not make the unfinished
+// upstream task stuck on PartitionedOutputBuffer.
+TEST_F(
+    PartitionedOutputBufferManagerTest,
+    upstreamTaskNotBlockedByPartitionedOutputBufferUponDownstreamTaskAbort) {
+  // Create an upstream task
+  std::vector<std::string> names = {"c0", "c1", "c2", "c3"};
+  std::vector<TypePtr> types = {BIGINT(), BIGINT(), BIGINT(), BIGINT()};
+  auto rowType = ROW(std::move(names), std::move(types));
+  vector_size_t size = 100;
+  std::string upstreamTaskId = "mock://task0";
+  auto task0 = initializeTask(upstreamTaskId, rowType, 5, 1);
+
+  // Create a task1 consuming the output of the upstream task "task0"
+  auto plan = exec::test::PlanBuilder()
+                  .exchange(rowType)
+                  .partitionedOutput({}, 1)
+                  .planFragment();
+  auto task1 = makeTask("task1", plan, 0);
+  task1->start(task1, 1, 1);
+  int requestedDestination = 0;
+
+  // Create a remote source split and add it to task1
+  MockExchangeSource::resetClosedExchangeSources();
+  task1->addSplitWithSequence(
+      "0",
+      exec::Split(std::make_shared<facebook::velox::exec::RemoteConnectorSplit>(
+          upstreamTaskId)),
+      requestedDestination);
+
+  // Abort the downstream task
+  auto future = task1->requestAbort();
+  ASSERT_TRUE(facebook::velox::exec::test::waitForTaskAbort(task1.get()));
+  usleep(100);
+
+  // If the downstream task has closed the exchangeSource, we assume it notifies
+  // the upstream task "task0" to abortResult
+  if (MockExchangeSource::isExchangeSourceClosed(
+          upstreamTaskId, requestedDestination)) {
+    // We assume the upstream task "task0" receives the abortResult request and
+    // then close the corresponding PartitionedOutputBuffer
+    deleteResults(upstreamTaskId, requestedDestination);
+  }
+
+  for (int sequence = 0; sequence < 20000; sequence++) {
+    // Simulate all producers of "task0" are still reading data and dumping it
+    // to the corresponding partitionedOutputBuffer
+    for (int destination = 0; destination < 5; destination++) {
+      enqueue(upstreamTaskId, destination, rowType, size);
+    }
+    // Simulate all downstream tasks (task1 and others) are still consuming data
+    // from the partitionedOutputBuffers
+    for (int destination = 0; destination < 5; destination++) {
+      // Since task1 is already aborted, it should not consume any data from
+      // task0
+      if (destination != requestedDestination)
+        fetchOneAndAck(upstreamTaskId, destination, sequence);
+    }
+  }
 }
